@@ -1,0 +1,738 @@
+diff --git a/include/kernel-defaults.mk b/include/kernel-defaults.mk
+index 3e78b677..066791e4 100644
+--- a/include/kernel-defaults.mk
++++ b/include/kernel-defaults.mk
+@@ -110,7 +110,7 @@ define Kernel/Configure/Default
+ 	awk '/^(#[[:space:]]+)?CONFIG_KERNEL/{sub("CONFIG_KERNEL_","CONFIG_");print}' $(TOPDIR)/.config >> $(LINUX_DIR)/.config.target
+ 	echo "# CONFIG_KALLSYMS_EXTRA_PASS is not set" >> $(LINUX_DIR)/.config.target
+ 	echo "# CONFIG_KALLSYMS_ALL is not set" >> $(LINUX_DIR)/.config.target
+-	$(if $(CONFIG_KERNEL_KALLSYMS),echo "CONFIG_KALLSYMS_UNCOMPRESSED=y" >> $(LINUX_DIR)/.config.target,true)
++	echo "# CONFIG_KALLSYMS_UNCOMPRESSED is not set" >> $(LINUX_DIR)/.config.target
+ 	$(SCRIPT_DIR)/package-metadata.pl kconfig $(TMP_DIR)/.packageinfo $(TOPDIR)/.config $(KERNEL_PATCHVER) > $(LINUX_DIR)/.config.override
+ 	$(SCRIPT_DIR)/kconfig.pl 'm+' '+' $(LINUX_DIR)/.config.target /dev/null $(LINUX_DIR)/.config.override > $(LINUX_DIR)/.config.set
+ 	$(call Kernel/SetNoInitramfs)
+diff --git a/package/boot/uboot-envtools/files/qualcommax b/package/boot/uboot-envtools/files/qualcommax
+index 502f5fea..358e8034 100644
+--- a/package/boot/uboot-envtools/files/qualcommax
++++ b/package/boot/uboot-envtools/files/qualcommax
+@@ -33,7 +33,8 @@ glinet,gl-axt1800|\
+ netgear,rax120v2|\
+ netgear,wax218|\
+ netgear,wax620|\
+-netgear,wax630)
++netgear,wax630|\
++tplink,tl-er2260t)
+ 	idx="$(find_mtd_index 0:appsblenv)"
+ 	[ -n "$idx" ] && \
+ 		ubootenv_add_uci_config "/dev/mtd$idx" "0x0" "0x40000" "0x20000" "2"
+diff --git a/package/qca/qca-ssdk-shell/patches/0002-fix-make-deps-rule.patch b/package/qca/qca-ssdk-shell/patches/0002-fix-make-deps-rule.patch
+new file mode 100644
+index 00000000..2fb29a43
+--- /dev/null
++++ b/package/qca/qca-ssdk-shell/patches/0002-fix-make-deps-rule.patch
+@@ -0,0 +1,11 @@
++--- a/make/target.mk
+++++ b/make/target.mk
++@@ -9,7 +9,7 @@ obj: $(OBJ_LIST)
++ dep: build_dir $(DEP_LIST)
++ 	$(DEP_LOOP)
++ 
++-$(OBJ_LIST): %.o : %.c %.d
+++$(OBJ_LIST): %.o : %.c
++ 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -c $< -o $(DST_DIR)/$@
++ 
++ $(DEP_LIST) : %.d : %.c
+diff --git a/package/qca/qca-ssdk/patches/0013-sfp-ignore-missing-rx-los-gpio.patch b/package/qca/qca-ssdk/patches/0013-sfp-ignore-missing-rx-los-gpio.patch
+new file mode 100644
+index 00000000..faaeffb4
+--- /dev/null
++++ b/package/qca/qca-ssdk/patches/0013-sfp-ignore-missing-rx-los-gpio.patch
+@@ -0,0 +1,17 @@
++--- a/src/hsl/phy/sfp_phy.c
+++++ b/src/hsl/phy/sfp_phy.c
++@@ -123,8 +123,12 @@ sfp_port_status_get_from_uniphy(a_uint32
++ 		{
++ 			case PORT_SGMII_PLUS:
++ 			case PORT_10GBASE_R:
++-				sfp_phy_rx_los_status_get(dev_id, port_id, &rx_los_status);
++-				SSDK_DEBUG("port %d rx_los_status is %x\n", port_id, rx_los_status);
+++				rv = sfp_phy_rx_los_status_get(dev_id, port_id, &rx_los_status);
+++				SSDK_DEBUG("port %d rx_los_status is %x (rv %d)\n", port_id, rx_los_status, rv);
+++				/*No valid RX_LOS GPIO on this port: trust the PCS/UNIPHY
+++				link status instead of treating it as a fake link*/
+++				if (rv == SW_NOT_SUPPORTED)
+++					rx_los_status = A_FALSE;
++ 				/*if uniphy is link up and rx los is 0, then link up,
++ 				if uniphy is link up but rx los is 1, this is fake link*/
++ 				if(rx_los_status)
+diff --git a/target/linux/qualcommax/dts/ipq8070-tl-er2260t.dts b/target/linux/qualcommax/dts/ipq8070-tl-er2260t.dts
+new file mode 100644
+index 00000000..e300f65b
+--- /dev/null
++++ b/target/linux/qualcommax/dts/ipq8070-tl-er2260t.dts
+@@ -0,0 +1,487 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Copyright (c) 2020 The Linux Foundation. All rights reserved.
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/net/qcom-ipq-ess.h>
++#include "ipq8074-512m.dtsi"
++#include "ipq8074-ess.dtsi"
++#include "ipq8074-nss.dtsi"
++#include "ipq8074-hk-cpu.dtsi"
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/leds/common.h>
++/ {
++	model = "TP-Link TL-ER2260T";
++	compatible = "tplink,tl-er2260t", "qcom,ipq8074";
++
++	aliases {
++		serial0 = &blsp1_uart5;
++		label-mac-device = &dp1;
++		/* Alias as required by u-boot to patch MAC addresses */
++		led-boot = &led_system_green;
++		led-failsafe = &led_system_green;
++		led-running = &led_system_green;
++		led-upgrade = &led_system_green;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++		bootargs-append = "  root=/dev/ubiblock0_1 coherent_pool=2M swiotlb=noforce";
++	};
++
++	keys {
++		compatible = "gpio-keys";
++		pinctrl-0 = <&button_pins>;
++		pinctrl-names = "default";
++
++		reset {
++			label = "reset";
++			linux,code = <KEY_RESTART>;
++			gpios = <&tlmm 50 GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		led_system_green: system-green {
++			label = "green:system";
++			gpios = <&tlmm 21 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++
++		led_usb_green {
++			label = "green:usb";
++			gpios = <&tlmm 22 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++
++		led_sfp1_speed_green {
++			label = "green:sfp1-10g";
++			gpios = <&tlmm 52 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++
++		led_sfp1_speed_amber {
++			label = "amber:sfp1-1g";
++			gpios = <&tlmm 54 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_AMBER>;
++		};
++
++		led_sfp1_act_green {
++			label = "green:sfp1-act";
++			gpios = <&tlmm 51 GPIO_ACTIVE_LOW>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++
++		led_sfp2_speed_green {
++			label = "green:sfp2-10g";
++			gpios = <&tlmm 56 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++
++		led_sfp2_speed_amber {
++			label = "amber:sfp2-1g";
++			gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
++			color = <LED_COLOR_ID_AMBER>;
++		};
++
++		led_sfp2_act_green {
++			label = "green:sfp2-act";
++			gpios = <&tlmm 55 GPIO_ACTIVE_LOW>;
++			color = <LED_COLOR_ID_GREEN>;
++		};
++	};
++};
++
++&tlmm {
++	mdio_pins: mdio-pins {
++		mdc {
++			pins = "gpio68";
++			function = "mdc";
++			drive-strength = <8>;
++			bias-pull-up;
++		};
++
++		mdio {
++			pins = "gpio69";
++			function = "mdio";
++			drive-strength = <8>;
++			bias-pull-up;
++		};
++	};
++
++	i2c_1_pins: i2c_1_pins {
++		pins = "gpio46", "gpio47";
++		function = "blsp2_i2c";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	button_pins: button_pins {
++		reset {
++			pins = "gpio50";
++			function = "gpio";
++			drive-strength = <8>;
++			bias-pull-up;
++		};
++	};
++
++	uniphy_pins: uniphy_pinmux {
++		mux {
++			pins = "gpio60";
++			function = "rx2";
++			bias-disable;
++		};
++
++		sfp_tx {
++			pins = "gpio59";
++			function = "gpio";
++			drive-strength = <8>;
++			bias-pull-down;
++			output-low;
++		};
++	};
++
++	leds_pins: leds_pinmux {
++		mux {
++			pins = "gpio21", "gpio22", "gpio51", "gpio52", 
++				"gpio54", "gpio55", "gpio56", "gpio64";
++			function = "gpio";
++			drive-strength = <8>;
++			bias-pull-down;
++		};
++	};
++};
++
++&mdio {
++	status = "okay";
++	pinctrl-0 = <&mdio_pins>;
++	pinctrl-names = "default";
++	reset-gpios = <&tlmm 37 GPIO_ACTIVE_LOW>;
++
++	ethernet-phy-package@0 {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		reg = <0>;
++
++		compatible = "qcom,qca8075-package";
++
++		qca8075_0: ethernet-phy@0 {
++			compatible = "ethernet-phy-ieee802.3-c22";
++			reg = <0>;
++		};
++
++		qca8075_1: ethernet-phy@1 {
++			compatible = "ethernet-phy-ieee802.3-c22";
++			reg = <1>;
++		};
++
++		qca8075_2: ethernet-phy@2 {
++			compatible = "ethernet-phy-ieee802.3-c22";
++			reg = <2>;
++		};
++
++		qca8075_3: ethernet-phy@3 {
++			compatible = "ethernet-phy-ieee802.3-c22";
++			reg = <3>;
++		};
++
++		phy4: ethernet-phy@4 {
++			reg = <29>;
++		};
++
++		phy5: ethernet-phy@5 {
++			reg = <30>;
++		};
++	};
++
++};
++
++&switch {
++	status = "okay";
++	switch_cpu_bmp = <0x1>;  /* cpu port bitmap */
++	switch_lan_bmp = <(ESS_PORT1 | ESS_PORT2 | ESS_PORT3 | ESS_PORT4 | ESS_PORT6)>; /* lan port bitmap */
++	switch_wan_bmp = <ESS_PORT5>; /* wan port bitmap */
++	switch_mac_mode = <MAC_MODE_PSGMII>; /* mac mode for uniphy instance0 */
++	switch_mac_mode1 = <MAC_MODE_10GBASE_R>;  /* use 10g_baser mode for default */
++	switch_mac_mode2 = <MAC_MODE_10GBASE_R>; /* use 10g_baser mode for default */
++	cmnblk_clk = "external_50MHz";
++	sfp1_gpio = <&tlmm 29 GPIO_ACTIVE_LOW>;
++	sfp2_gpio = <&tlmm 30 GPIO_ACTIVE_LOW>;
++
++	qcom,port_phyinfo {
++		port@0 {
++			port_id = <1>;
++			phy_address = <0>;
++		};
++
++		port@1 {
++			port_id = <2>;
++			phy_address = <1>;
++		};
++
++		port@2 {
++			port_id = <3>;
++			phy_address = <2>;
++		};
++
++		port@3 {
++			port_id = <4>;
++			phy_address = <3>;
++		};
++
++		sfp_1: port@4 {
++			port_id = <5>;
++			phy_address = <29>;
++			phy_i2c_address = <29>; /* 29 */
++			phy-i2c-mode; /*i2c access phy */
++			media-type = "sfp"; /* fiber mode */
++		};
++
++		sfp_2: port@5 {
++			port_id = <6>;
++			phy_address = <30>;
++			phy_i2c_address = <30>; /* 30 */
++			phy-i2c-mode; /*i2c access phy */
++			media-type = "sfp"; /* fiber mode */
++		};
++	};
++};
++
++&edma {
++	status = "okay";
++};
++
++&dp1 {
++	status = "okay";
++	phy-handle = <&qca8075_0>;
++	label = "lan1";
++	nvmem-cells = <&macaddr_lan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&dp2 {
++	status = "okay";
++	phy-handle = <&qca8075_1>;
++	label = "lan2";
++	nvmem-cells = <&macaddr_lan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&dp3 {
++	status = "okay";
++	phy-handle = <&qca8075_2>;
++	label = "lan3";
++	nvmem-cells = <&macaddr_lan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&dp4 {
++	status = "okay";
++	phy-handle = <&qca8075_3>;
++	label = "lan4";
++	nvmem-cells = <&macaddr_lan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&dp5_syn {
++	status = "okay";
++	phy-handle = <&sfp_1>;
++	label = "lan6";
++	qcom,phy-mdio-addr = <29>;
++	nvmem-cells = <&macaddr_wan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&dp6_syn {
++	status = "okay";
++	phy-mode = "sgmii";
++	phy-handle = <&sfp_2>;
++	label = "lan5";
++	qcom,phy-mdio-addr = <30>;
++	nvmem-cells = <&macaddr_lan>;
++	nvmem-cell-names = "mac-address";
++};
++
++&blsp1_uart5 {
++	status = "okay";
++};
++
++&blsp1_i2c2 {
++	status = "okay";
++};
++
++&blsp1_i2c3 {
++	status = "okay";
++};
++
++&qpic_bam {
++	status = "okay";
++};
++
++&qpic_nand {
++	status = "okay";
++
++	/*
++	 * Bootloader will find the NAND DT node by the compatible and
++	 * then "fixup" it by adding the partitions from the SMEM table
++	 * using the legacy bindings thus making it impossible for us
++	 * to change the partition table or utilize NVMEM for calibration.
++	 * So add a dummy partitions node that bootloader will populate
++	 * and set it as disabled so the kernel ignores it instead of
++	 * printing warnings due to the broken way bootloader adds the
++	 * partitions.
++	 */
++	partitions {
++		status = "disabled";
++	};
++
++	nand@0 {
++		reg = <0>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		nand-ecc-strength = <4>;
++		nand-ecc-step-size = <512>;
++		nand-bus-width = <8>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			partition@0 {
++				label = "0:sbl1";
++				reg = <0x0 0x80000>;
++				read-only;
++			};
++
++			partition@80000 {
++				label = "0:mibib";
++				reg = <0x80000 0x80000>;
++				read-only;
++			};
++
++			partition@100000 {
++				label = "0:qsee";
++				reg = <0x100000 0x200000>;
++				read-only;
++			};
++
++			partition@300000 {
++				label = "0:devcfg";
++				reg = <0x300000 0x20000>;
++				read-only;
++			};
++
++			partition@320000 {
++				label = "0:rpm";
++				reg = <0x320000 0x40000>;
++				read-only;
++			};
++
++			partition@360000 {
++				label = "0:cdt";
++				reg = <0x360000 0x20000>;
++				read-only;
++			};
++
++			partition@380000 {
++				label = "0:appsbl";
++				reg = <0x380000 0x180000>;
++				read-only;
++			};
++
++			partition@500000 {
++				label = "0:ethphyfw";
++				reg = <0x500000 0x80000>;
++
++				nvmem-layout {
++					compatible = "fixed-layout";
++					#address-cells = <1>;
++					#size-cells = <1>;
++
++					macaddr_lan: macaddr@0 {
++						reg = <0x0 0x6>;
++					};
++
++					macaddr_wan: macaddr@1 {
++						reg = <0x6 0x6>;
++					};
++				};
++			};
++
++			partition@580000 {
++				label = "0:appsblenv";
++				reg = <0x580000 0x80000>;
++				read-only;
++			};
++
++			partition@600000 {
++				label = "0:art";
++				reg = <0x600000 0x20000>;
++				read-only;
++			};
++
++			partition@620000 {
++				label = "rootfs";
++				reg = <0x620000 0x7900000>;
++			};
++		};
++	};
++};
++
++&blsp1_spi1 {
++	pinctrl-0 = <&spi_0_pins>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	flash@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		reg = <0>;
++		linux,modalias = "m25p80", "mx25u6435f", "mx30uf2g18ac", "n25q128a11";
++		compatible = "micron, mx25u6435f", "jedec,spi-nor";
++		spi-max-frequency = <50000000>;
++		use-default-sizes;
++	};
++};
++
++&qusb_phy_0 {
++	status = "okay";
++};
++
++&qusb_phy_1 {
++	status = "okay";
++};
++
++&ssphy_0 {
++	status = "okay";
++};
++
++&ssphy_1 {
++	status = "okay";
++};
++
++&usb_0 {
++	status = "okay";
++};
++
++&usb_1 {
++	status = "okay";
++};
++
++
++&cryptobam {
++	status = "okay";
++};
++
++&crypto {
++	status = "okay";
++};
++
++&prng {
++	status = "okay";
++};
+diff --git a/target/linux/qualcommax/image/ipq807x.mk b/target/linux/qualcommax/image/ipq807x.mk
+index 4cfbcae7..6a062c74 100644
+--- a/target/linux/qualcommax/image/ipq807x.mk
++++ b/target/linux/qualcommax/image/ipq807x.mk
+@@ -347,3 +347,18 @@ define Device/zyxel_nbg7815
+ 		kmod-bluetooth kmod-hwmon-tmp103
+ endef
+ TARGET_DEVICES += zyxel_nbg7815
++
++define Device/tplink_tl-er2260t
++	$(call Device/FitImage)
++	$(call Device/UbiFit)
++	DEVICE_VENDOR := TP-Link
++	DEVICE_MODEL := TL-ER2260T
++	BLOCKSIZE := 128k
++	PAGESIZE := 2048
++	DEVICE_DTS_CONFIG := config@hk07
++	SOC := ipq8070
++	DEVICE_PACKAGES := -kmod-ath11k -kmod-ath11k-ahb -ath11k-firmware-ipq8074 \
++		-wpad-openssl -hostapd-common -iw -iwinfo \
++		kmod-usb-ledtrig-usbport qca-ssdk-shell
++endef
++TARGET_DEVICES += tplink_tl-er2260t
+diff --git a/target/linux/qualcommax/ipq807x/base-files/etc/board.d/01_leds b/target/linux/qualcommax/ipq807x/base-files/etc/board.d/01_leds
+index e3632585..559f7d44 100644
+--- a/target/linux/qualcommax/ipq807x/base-files/etc/board.d/01_leds
++++ b/target/linux/qualcommax/ipq807x/base-files/etc/board.d/01_leds
+@@ -18,6 +18,13 @@ arcadyan,aw1000)
+ edgecore,eap102)
+ 	ucidef_set_led_netdev "wan" "WAN" "green:wanpoe" "wan"
+ 	;;
++tplink,tl-er2260t)
++	ucidef_set_led_usbdev "usb" "USB" "green:usb" "1-1"
++	ucidef_set_led_netdev "sfp1-link" "SFP1 (Link)" "green:sfp1-10g" "lan5" "link"
++	ucidef_set_led_netdev "sfp2-link" "SFP2 (Link)" "green:sfp2-10g" "lan6" "link"
++	ucidef_set_led_netdev "sfp1-activity" "SFP1 (Activity)" "green:sfp1-act" "lan5" "tx rx"
++	ucidef_set_led_netdev "sfp2-activity" "SFP2 (Activity)" "green:sfp2-act" "lan6" "tx rx"
++	;;
+ netgear,rax120v2)
+ 	ucidef_set_led_netdev "aqr" "AQR" "white:aqr" "lan5"
+ 	;;
+diff --git a/target/linux/qualcommax/ipq807x/base-files/etc/board.d/02_network b/target/linux/qualcommax/ipq807x/base-files/etc/board.d/02_network
+index b3f9741e..9e87e3e5 100644
+--- a/target/linux/qualcommax/ipq807x/base-files/etc/board.d/02_network
++++ b/target/linux/qualcommax/ipq807x/base-files/etc/board.d/02_network
+@@ -57,6 +57,9 @@ ipq807x_setup_interfaces()
+ 	zyxel,nbg7815)
+ 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 10g" "wan"
+ 		;;
++	tplink,tl-er2260t)
++		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4 lan5" "lan6"
++		;;
+ 	*)
+ 		echo "Unsupported hardware. Network interfaces not initialized"
+ 		;;
+@@ -76,6 +79,13 @@ ipq807x_setup_macs()
+ 		lan_mac=$(macaddr_add "$wan_mac" 1)
+ 		label_mac="$wan_mac"
+ 		;;
++	tplink,tl-er2260t)
++		lan_mac=$(mtd_get_mac_binary "0:ethphyfw" 0x0)
++		wan_mac=$(mtd_get_mac_binary "0:ethphyfw" 0x6)
++		[ -z "$lan_mac" ] && lan_mac=$(mtd_get_mac_binary "0:art" 0x0)
++		[ -z "$wan_mac" ] && wan_mac=$(macaddr_add "$lan_mac" 1)
++		label_mac="$lan_mac"
++		;;
+ 	esac
+ 
+ 	[ -n "$lan_mac" ] && ucidef_set_interface_macaddr "lan" $lan_mac
+diff --git a/target/linux/qualcommax/ipq807x/base-files/etc/init.d/sfp_link_speed b/target/linux/qualcommax/ipq807x/base-files/etc/init.d/sfp_link_speed
+new file mode 100755
+index 00000000..39d1b129
+--- /dev/null
++++ b/target/linux/qualcommax/ipq807x/base-files/etc/init.d/sfp_link_speed
+@@ -0,0 +1,91 @@
++#!/bin/sh /etc/rc.common
++
++START=15
++STOP=90
++
++USE_PROCD=1
++
++# SFP 接口名与 SSDK 端口号的对应关系（来自 DTS 的 port_id）：
++#   lan5 = dp6_syn = SSDK port 6
++#   lan6 = dp5_syn = SSDK port 5
++sfp_port() {
++	case "$1" in
++	lan5) echo 6 ;;
++	lan6) echo 5 ;;
++	*) return 1 ;;
++	esac
++}
++
++# 用户配置的 sfp_speed 到 SSDK SerDes 模式的映射：
++#   1   -> sgmii_fiber (1G)
++#   2   -> sgmii_plus  (2.5G / HSGMII)
++#   10  -> 10gbase_r   (10G)
++#   空   -> 10gbase_r   (默认，兼容 LuCI 空值表示 10G)
++sfp_mode() {
++	case "$1" in
++	1) echo sgmii_fiber ;;
++	2) echo sgmii_plus ;;
++	10|'') echo 10gbase_r ;;
++	*) return 1 ;;
++	esac
++}
++
++# 加入待处理列表；同一端口只记录一次，避免重复 set。
++sfp_pending_add() {
++	case " $sfp_pending " in
++	*" $1:"*) return 0 ;;
++	esac
++	sfp_pending="$sfp_pending $1:$2"
++}
++
++sfp_speed_device_cb() {
++	local name speed port mode
++
++	config_get name "$1" name
++	[ -n "$name" ] || name="$1"
++	[ -n "$name" ] || return 0
++
++	port=$(sfp_port "$name") || return 0
++	config_get speed "$1" sfp_speed
++	mode=$(sfp_mode "$speed") || return 0
++
++	sfp_pending_add "$port" "$mode"
++}
++
++start_service() {
++	[ "$(board_name)" = "tplink,tl-er2260t" ] || return 0
++
++	sfp_pending=""
++	config_load network
++	config_foreach sfp_speed_device_cb device
++
++	# 兜底：未显式配置的 SFP 端口默认强制 10G，避免 host-side 链路起不来。
++	for port in 5 6; do
++		sfp_pending_add "$port" 10gbase_r
++	done
++
++	local entry port mode applied=0
++
++	for entry in $sfp_pending; do
++		port=${entry%%:*}
++		mode=${entry#*:}
++		if ssdk_sh port interfaceMode set "$port" "$mode" >/dev/null 2>&1; then
++			logger -t "SFP Speed" "Set SSDK port $port to $mode."
++			applied=1
++		else
++			logger -t "SFP Speed" "Failed to set SSDK port $port to $mode."
++		fi
++	done
++
++	[ "$applied" -eq 1 ] || return 0
++
++	if ssdk_sh port interfaceMode apply >/dev/null 2>&1; then
++		logger -t "SFP Speed" "Interface mode applied."
++	else
++		logger -t "SFP Speed" "Failed to apply interface mode."
++	fi
++}
++
++service_triggers() {
++	procd_add_reload_trigger network
++}
+diff --git a/target/linux/qualcommax/ipq807x/base-files/lib/upgrade/platform.sh b/target/linux/qualcommax/ipq807x/base-files/lib/upgrade/platform.sh
+index bd7b609a..c77ed44f 100644
+--- a/target/linux/qualcommax/ipq807x/base-files/lib/upgrade/platform.sh
++++ b/target/linux/qualcommax/ipq807x/base-files/lib/upgrade/platform.sh
+@@ -43,6 +43,7 @@ platform_do_upgrade() {
+ 	netgear,wax620|\
+ 	netgear,wax630|\
+ 	zbtlink,zbt*|\
++	tplink,tl-er2260t|\
+ 	zte,mf269)
+ 		nand_do_upgrade "$1"
+ 		;;
