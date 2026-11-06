@@ -1,0 +1,14 @@
+diff --git a/package/qca/qca-nss-ecm/patches/0025-ecm-bind-sockaddr-unsized-compat.patch b/package/qca/qca-nss-ecm/patches/0025-ecm-bind-sockaddr-unsized-compat.patch
+new file mode 100644
+--- /dev/null
++++ b/package/qca/qca-nss-ecm/patches/0025-ecm-bind-sockaddr-unsized-compat.patch
+@@ -0,0 +1,9 @@
++--- a/ecm_interface.c
+++++ b/ecm_interface.c
++@@ -8212,1 +8212,5 @@
++-	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr *)&saddr, sizeof(struct sockaddr));
+++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
+++	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr_unsized *)&saddr, sizeof(saddr));
+++#else
+++	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr *)&saddr, sizeof(saddr));
+++#endif

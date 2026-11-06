@@ -43,12 +43,14 @@ jobs:
           df -h
 
       - name: Initialize Environment
+        timeout-minutes: 20
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt update -y
-          sudo apt full-upgrade -y
-          sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          echo "Updating package lists: $(date -Is)"
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          echo "Installing build dependencies: $(date -Is)"
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
           bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
           genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
           libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
@@ -60,6 +62,8 @@ jobs:
       - name: Clone Source Code
         run: |
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+          git -C openwrt checkout 74a59a5826862feacff9b9e9c93d28aec31aefd8
+          git -C openwrt rev-parse HEAD
 
       - name: Apply Custom Patches
         run: |
@@ -82,6 +86,7 @@ jobs:
           cp -f .config openwrt/.config
           cd openwrt
           make defconfig
+          grep -qx "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_tplink_tl-er2260t=y" .config
 
       - name: Download package
         id: package
