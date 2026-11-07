@@ -8,7 +8,15 @@ on:
         required: false
         default: 'manual'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: lede-custom-board-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
+  SOURCE_COMMIT: 74a59a5826862feacff9b9e9c93d28aec31aefd8
   REPO_URL: https://github.com/coolsnowwolf/lede.git
   REPO_BRANCH: master
   TZ: Asia/Shanghai
@@ -61,9 +69,11 @@ jobs:
 
       - name: Clone Source Code
         run: |
-          git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
-          git -C openwrt checkout 74a59a5826862feacff9b9e9c93d28aec31aefd8
-          git -C openwrt rev-parse HEAD
+          git init openwrt
+          git -C openwrt remote add origin "$REPO_URL"
+          git -C openwrt fetch --depth 1 origin "$SOURCE_COMMIT"
+          git -C openwrt checkout --detach FETCH_HEAD
+          test "$(git -C openwrt rev-parse HEAD)" = "$SOURCE_COMMIT"
 
       - name: Apply Custom Patches
         run: |
@@ -86,7 +96,9 @@ jobs:
           cp -f .config openwrt/.config
           cd openwrt
           make defconfig
-          grep -qx "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_tplink_tl-er2260t=y" .config
+          # Refuse to build if defconfig enables any other board.
+          python3 ../scripts/check-single-profile.py .config
+          ./scripts/diffconfig.sh > config.buildinfo
 
       - name: Download package
         id: package
@@ -119,3 +131,4 @@ jobs:
         with:
           name: lede_firmware
           path: ${{ env.FIRMWARE }}
+          if-no-files-found: error
