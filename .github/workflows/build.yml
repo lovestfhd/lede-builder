@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_COMMIT: 74a59a5826862feacff9b9e9c93d28aec31aefd8
+  SOURCE_COMMIT: 5b3fb1a5ee7884ff11149511a125fb87905effb0
   REPO_URL: https://github.com/coolsnowwolf/lede.git
   REPO_BRANCH: master
   TZ: Asia/Shanghai
@@ -85,11 +85,32 @@ jobs:
             fi
           done
 
-      - name: Update and Install Feeds
+      - name: Update Feeds
+        timeout-minutes: 30
+        run: |
+          set -o pipefail
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 60
+          cd openwrt
+          df -h
+          free -h
+          # Bound each update attempt; do not leave a stalled fetch running forever.
+          for attempt in 1 2 3; do
+            echo "Feeds update attempt $attempt: $(date -Is)"
+            if timeout --kill-after=30s 8m ./scripts/feeds update -a; then
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+
+      - name: Install Feeds
+        timeout-minutes: 15
         run: |
           cd openwrt
-          ./scripts/feeds update -a
           ./scripts/feeds install -a
+          df -h
+          free -h
 
       - name: Load Custom Configuration
         run: |
